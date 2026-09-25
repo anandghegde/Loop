@@ -32,6 +32,21 @@ enum ScreenOrder: Int, Defaults.Serializable, CaseIterable, Identifiable {
         }
     }
 
+    @ViewBuilder
+    var image: some View {
+        switch self {
+        case .zShaped:
+            Image(.arrowTriangleheadSwapRotated)
+        case .clockwise:
+            // Named arrow.trianglehead.2.clockwise.rotate.90 since macOS 15; the old name works everywhere.
+            Image(systemName: "arrow.triangle.2.circlepath")
+        case .counterclockwise:
+            // arrow.trianglehead.2.counterclockwise.rotate.90 needs macOS 15, so mirror the clockwise symbol instead.
+            Image(systemName: "arrow.triangle.2.circlepath")
+                .scaleEffect(x: -1, y: 1)
+        }
+    }
+
     /// Sorts screens into the traversal order this case describes.
     /// - Parameters:
     ///   - elements: the screens to sort.
