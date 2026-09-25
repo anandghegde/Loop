@@ -202,14 +202,21 @@ struct AdvancedConfigurationView: View {
     }
 
     private var screensSection: some View {
-        LuminareSection(String(localized: "Screens", comment: "Section header shown in settings")) {
-            LuminarePickerMenu(
-                "Next/previous screen order",
+        LuminareSection(String(localized: "Next/Previous Screen Order", comment: "Section header shown in settings")) {
+            LuminarePicker(
+                elements: ScreenOrder.allCases,
                 selection: $screenOrder,
-                items: ScreenOrder.allCases
+                columns: 3
             ) { order in
-                Text(order.name)
+                VStack(spacing: 4) {
+                    order.image
+                    Text(order.name)
+                }
+                .padding(.vertical, 15)
+                .compositingGroup()
             }
+            .luminareContentSize(hasFixedHeight: true)
+            .luminareRoundingBehavior(top: true, bottom: true)
         }
     }
 
