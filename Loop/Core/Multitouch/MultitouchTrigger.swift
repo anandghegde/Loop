@@ -103,6 +103,7 @@ final class MultitouchTrigger {
             closeDebugOverlay(force: true)
         #endif
         handleStopResults(recognizerRegistry.stopAll())
+        gestureBlocker.stop()
         targetResolver.reset()
     }
 
@@ -126,8 +127,10 @@ final class MultitouchTrigger {
         handleStopResults(recognizerRegistry.rebuild(with: Defaults[.gestures]))
         if recognizerRegistry.hasRecognizers {
             gestureMonitor.start()
+            gestureBlocker.start()
         } else {
             gestureMonitor.stop()
+            gestureBlocker.stop()
         }
         updateSystemGestureFilter()
     }
@@ -143,7 +146,7 @@ final class MultitouchTrigger {
                 closeCallback(false)
             }
             if stopResult.didAcquireGestureBlocker {
-                gestureBlocker.stop()
+                gestureBlocker.release()
             }
         }
     }
@@ -188,6 +191,7 @@ final class MultitouchTrigger {
         releaseGestureBlocker(for: session)
 
         guard systemGestureFilter.canClaimCurrentTouch(fingerCount: fingerCount) else {
+            log.info("Rejected \(fingerCount)-finger \(gesture.kind) gesture: \(dockOwnershipRejectionReason)")
             session.abandonStroke()
             return false
         }
@@ -197,6 +201,11 @@ final class MultitouchTrigger {
             gesture: gesture,
             loopWasAlreadyOpen: loopWasAlreadyOpen
         ) else {
+            if !activationContext.allows(gesture) {
+                log.info("Rejected \(fingerCount)-finger \(gesture.kind) gesture: titlebar-only gesture started outside a titlebar")
+            } else {
+                log.info("Rejected \(fingerCount)-finger \(gesture.kind) gesture: no target window")
+            }
             systemGestureFilter.releaseCurrentTouch(fingerCount: fingerCount)
             // Keep the DEBUG overlay alive, as it follows the physical stroke
             return false
@@ -204,6 +213,7 @@ final class MultitouchTrigger {
 
         // Claimed only once accepted, so the filter never sees Loop own a stroke it's about to reject
         guard systemGestureFilter.claimCurrentTouch(fingerCount: fingerCount) else {
+            log.info("Rejected \(fingerCount)-finger \(gesture.kind) gesture: failed to claim the touch, \(dockOwnershipRejectionReason)")
             session.reject()
             return false
         }
@@ -217,9 +227,13 @@ final class MultitouchTrigger {
             allowsRapidRepeat: allowsRapidRepeat
         )
 
-        gestureBlocker.start()
+        gestureBlocker.acquire()
         session.acquireGestureBlocker()
         return true
+    }
+
+    private var dockOwnershipRejectionReason: String {
+        MissionControl.isShowing ? "Mission Control is showing" : "the Dock already owns this stroke"
     }
 
     private func handleEarlyRadialMenuGesture(
@@ -361,6 +375,7 @@ final class MultitouchTrigger {
                 let result = try await openCallback(.init(.noSelection), window)
                 openedLoop = result == .opened
             } catch {
+                log.info("Failed to open Loop for \(fingerCount)-finger gesture: \(error.localizedDescription)")
                 if recognizerRegistry.contains(session: session, for: fingerCount) {
                     session.reject()
                     releaseGestureBlocker(for: session)
@@ -428,7 +443,7 @@ final class MultitouchTrigger {
 
     private func releaseGestureBlocker(for session: MultitouchGestureSession) {
         if session.releaseGestureBlocker() {
-            gestureBlocker.stop()
+            gestureBlocker.release()
         }
     }
 }
