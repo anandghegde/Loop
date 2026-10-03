@@ -207,7 +207,8 @@ struct UpdateView: View {
                         return
                     }
 
-                    try await Updater.shared.downloadAndInstallUpdate()
+                    // Failures are logged and surfaced through installState
+                    try? await Updater.shared.downloadAndInstallUpdate()
                 }
             } label: {
                 ZStack {

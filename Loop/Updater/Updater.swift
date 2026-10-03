@@ -87,8 +87,12 @@ final class Updater: ObservableObject {
                 if !NSApp.isActive, NSApp.windows.allSatisfy({ !$0.isVisible }) {
                     log.info("Automatic updates enabled, installing update...")
                     Task {
-                        try await downloadAndInstallUpdate()
-                        await relaunchAfterUpdate()
+                        do {
+                            try await downloadAndInstallUpdate()
+                            await relaunchAfterUpdate()
+                        } catch {
+                            // downloadAndInstallUpdate already logs the failure and updates installState
+                        }
                     }
                 } else {
                     log.info("Automatic updates enabled, but Loop is active. Skipping installation.")

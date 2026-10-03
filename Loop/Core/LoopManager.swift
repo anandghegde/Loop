@@ -595,7 +595,7 @@ extension LoopManager {
                     }
 
                     Task {
-                        _ = try await WindowActionEngine.shared.apply(context: resizeContext)
+                        _ = try? await WindowActionEngine.shared.apply(context: resizeContext)
                     }
                 }
             }

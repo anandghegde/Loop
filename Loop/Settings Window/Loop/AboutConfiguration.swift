@@ -124,7 +124,7 @@ final class AboutConfigurationModel: ObservableObject {
         didCompleteCopyToClipboard = true
 
         Task { @MainActor in
-            try await Task.sleep(for: .seconds(2))
+            try? await Task.sleep(for: .seconds(2))
             didCompleteCopyToClipboard = false
         }
     }
