@@ -153,7 +153,6 @@ struct AdvancedConfigurationView: View {
     var body: some View {
         LuminareForm {
             generalSection
-            screensSection
             radialMenuSection
             keybindsSection
             permissionsSection
@@ -207,6 +206,14 @@ struct AdvancedConfigurationView: View {
             LuminareToggle("Ignore full-screen windows", isOn: $ignoreFullscreen)
             LuminareToggle("Haptic feedback", isOn: $hapticFeedback)
 
+            LuminarePickerMenu(
+                "Next/previous screen order",
+                selection: $screenOrder,
+                items: ScreenOrder.allCases
+            ) { order in
+                Text("\(order.image) \(Text(order.name))")
+            }
+
             LuminareSlider(
                 "Size increment",
                 value: $sizeIncrement.doubleBinding,
@@ -216,25 +223,6 @@ struct AdvancedConfigurationView: View {
                 clampsUpper: false,
                 suffix: Text("px", comment: "Unit symbol: pixels")
             )
-        }
-    }
-
-    private var screensSection: some View {
-        LuminareSection(String(localized: "Next/Previous Screen Order", comment: "Section header shown in settings")) {
-            LuminarePicker(
-                elements: ScreenOrder.allCases,
-                selection: $screenOrder,
-                columns: 3
-            ) { order in
-                VStack(spacing: 4) {
-                    order.image
-                    Text(order.name)
-                }
-                .padding(.vertical, 15)
-                .compositingGroup()
-            }
-            .luminareContentSize(hasFixedHeight: true)
-            .luminareRoundingBehavior(top: true, bottom: true)
         }
     }
 

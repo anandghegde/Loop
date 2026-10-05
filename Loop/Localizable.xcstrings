@@ -5423,9 +5423,6 @@
         }
       }
     },
-    "Counterclockwise" : {
-      "comment" : "Name of the screen order that walks around the screen arrangement counterclockwise"
-    },
     "Credits" : {
       "comment" : "Section header shown in settings",
       "localizations" : {
@@ -20008,8 +20005,8 @@
         }
       }
     },
-    "Next/Previous Screen Order" : {
-      "comment" : "Section header shown in settings"
+    "Next/previous screen order" : {
+      "comment" : "Label for the picker that sets the order the Next Screen and Previous Screen actions go through screens in"
     },
     "No Action" : {
       "comment" : "Window action: no selection",
