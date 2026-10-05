@@ -13,11 +13,9 @@ enum ScreenOrder: Int, Defaults.Serializable, CaseIterable, Identifiable {
     /// Row by row from top to bottom, and each row from left to right.
     case zShaped = 0
 
-    /// Around the arrangement, starting from the screen at the top left.
+    /// Around the arrangement, starting from the screen at the top left. "Previous screen"
+    /// walks it counterclockwise.
     case clockwise = 1
-
-    /// Around the arrangement in the opposite direction.
-    case counterclockwise = 2
 
     var id: Self { self }
 
@@ -27,23 +25,16 @@ enum ScreenOrder: Int, Defaults.Serializable, CaseIterable, Identifiable {
             "Z-shaped"
         case .clockwise:
             "Clockwise"
-        case .counterclockwise:
-            "Counterclockwise"
         }
     }
 
-    @ViewBuilder
-    var image: some View {
+    var image: Image {
         switch self {
         case .zShaped:
             Image(.arrowTriangleheadSwapRotated)
         case .clockwise:
             // Named arrow.trianglehead.2.clockwise.rotate.90 since macOS 15; the old name works everywhere.
             Image(systemName: "arrow.triangle.2.circlepath")
-        case .counterclockwise:
-            // arrow.trianglehead.2.counterclockwise.rotate.90 needs macOS 15, so mirror the clockwise symbol instead.
-            Image(systemName: "arrow.triangle.2.circlepath")
-                .scaleEffect(x: -1, y: 1)
         }
     }
 
@@ -57,9 +48,7 @@ enum ScreenOrder: Int, Defaults.Serializable, CaseIterable, Identifiable {
         case .zShaped:
             elements.sorted { Self.zShapedOrder(frame($0), frame($1)) }
         case .clockwise:
-            Self.rotationalOrder(elements, frame: frame, isClockwise: true)
-        case .counterclockwise:
-            Self.rotationalOrder(elements, frame: frame, isClockwise: false)
+            Self.clockwiseOrder(elements, frame: frame)
         }
     }
 }
@@ -81,175 +70,274 @@ private extension ScreenOrder {
     }
 }
 
-// MARK: - Rotational order
+// MARK: - Clockwise order
 
 private extension ScreenOrder {
-    /// A screen paired with the geometry the sort needs, so that frames are only asked for once.
-    struct Placed<Element> {
-        let id: Int
-        let element: Element
-        let frame: CGRect
-        var center: CGPoint { frame.center }
-    }
-
     /// Walks around the arrangement, outermost screens first.
     ///
-    /// Screens on the outside of the arrangement form the first ring and are visited in turn;
-    /// any screens left inside it form the next ring, and so on. An arrangement without an
-    /// inside, which is every arrangement of two screens and any number of screens in a row,
-    /// is a single ring.
-    static func rotationalOrder<Element>(
-        _ elements: [Element],
-        frame: (Element) -> CGRect,
-        isClockwise: Bool
-    ) -> [Element] {
-        // Two screens cycle the same way around whichever direction is chosen.
+    /// The outline of the arrangement is traced clockwise from the top left corner of its top
+    /// left screen, and each screen is visited the first time the outline reaches it. Screens
+    /// the outline never reaches are inside the arrangement, and are walked the same way once
+    /// the ones around them have been.
+    ///
+    /// The outline steps straight across gaps between screens rather than following them in,
+    /// so a gap doesn't pull the screens deep inside it into the middle of the cycle.
+    ///
+    /// Only the screens' edges are used, never their centers, so a row stays a row however its
+    /// screens are aligned, and resizing a screen doesn't move its neighbors to another ring.
+    static func clockwiseOrder<Element>(_ elements: [Element], frame: (Element) -> CGRect) -> [Element] {
+        // Two screens cycle the same way whatever order they're in.
         guard elements.count > 2 else {
             return elements.sorted { zShapedOrder(frame($0), frame($1)) }
         }
 
-        var remaining = elements.enumerated().map { Placed(id: $0.offset, element: $0.element, frame: frame($0.element)) }
+        let frames = elements.map(frame)
+        var remaining = Array(frames.indices)
         var result: [Element] = []
 
         while !remaining.isEmpty {
-            let ringIndices = outermostRing(of: remaining.map(\.center))
+            let ring = outermostRing(of: remaining, frames: frames)
 
-            // Every screen is on the outside of something, so this should not happen. Should it
-            // ever, fall back to the original order rather than spin here forever.
-            guard !ringIndices.isEmpty else {
-                result += remaining
-                    .sorted { zShapedOrder($0.frame, $1.frame) }
-                    .map(\.element)
+            // A ring always has a screen in it, but should one ever come back empty, keep the
+            // rest in the order they were given rather than loop here forever.
+            guard !ring.isEmpty else {
+                result += remaining.map { elements[$0] }
                 break
             }
 
-            let ring = ringIndices.map { remaining[$0] }
-            result += ordered(ring, isClockwise: isClockwise).map(\.element)
+            result += ring.map { elements[$0] }
 
-            let visited = Set(ringIndices)
-            remaining = remaining.indices
-                .filter { !visited.contains($0) }
-                .map { remaining[$0] }
+            let visited = Set(ring)
+            remaining.removeAll { visited.contains($0) }
         }
 
         return result
-    }
-
-    /// Orders one ring of screens, starting from the screen closest to the top left.
-    static func ordered<Element>(_ ring: [Placed<Element>], isClockwise: Bool) -> [Placed<Element>] {
-        guard ring.count > 2 else {
-            return ring.sorted { zShapedOrder($0.frame, $1.frame) }
-        }
-
-        var result = isCollinear(ring.map(\.center))
-            ? straightLineOrder(ring, isClockwise: isClockwise)
-            : angularOrder(ring, isClockwise: isClockwise)
-
-        // The cycle has no natural beginning, so start it where the eye does.
-        let topLeft = ring.min { zShapedOrder($0.frame, $1.frame) }
-
-        if let topLeft, let start = result.firstIndex(where: { $0.id == topLeft.id }) {
-            result = Array(result[start...] + result[..<start])
-        }
-
-        return result
-    }
-
-    /// Orders screens that are all in a line, along that line.
-    ///
-    /// A row is the top of the circle, where clockwise runs to the right; a column is the right
-    /// of it, where clockwise runs downwards.
-    static func straightLineOrder<Element>(
-        _ ring: [Placed<Element>],
-        isClockwise: Bool
-    ) -> [Placed<Element>] {
-        let centers = ring.map(\.center)
-        let width = (centers.map(\.x).max() ?? 0) - (centers.map(\.x).min() ?? 0)
-        let height = (centers.map(\.y).max() ?? 0) - (centers.map(\.y).min() ?? 0)
-
-        let result = width >= height
-            ? ring.sorted { $0.center.x < $1.center.x }
-            : ring.sorted { $0.center.y > $1.center.y }
-
-        return isClockwise ? result : result.reversed()
-    }
-
-    /// Orders screens by the angle at which they sit around the middle of their ring.
-    static func angularOrder<Element>(_ ring: [Placed<Element>], isClockwise: Bool) -> [Placed<Element>] {
-        let centers = ring.map(\.center)
-        let middle = CGPoint(
-            x: centers.map(\.x).reduce(0, +) / CGFloat(centers.count),
-            y: centers.map(\.y).reduce(0, +) / CGFloat(centers.count)
-        )
-
-        // Angles increase counterclockwise, since the y axis points up.
-        let result = ring.sorted { lhs, rhs in
-            angle(of: lhs.center, around: middle) < angle(of: rhs.center, around: middle)
-        }
-
-        return isClockwise ? result.reversed() : result
-    }
-
-    static func angle(of point: CGPoint, around middle: CGPoint) -> CGFloat {
-        atan2(point.y - middle.y, point.x - middle.x)
     }
 }
 
-// MARK: - Geometry
+// MARK: - Outline
 
 private extension ScreenOrder {
-    /// Screens are laid out on a grid of points, so anything this small is a rounding error.
-    static let tolerance: CGFloat = 0.001
+    /// A corner of a cell in the grid that the arrangement is cut into.
+    struct Vertex: Hashable {
+        let column: Int
+        let row: Int
+    }
 
-    /// Finds the screens on the outside of an arrangement.
-    ///
-    /// This is the convex hull of their centers, keeping the centers that sit on one of its
-    /// edges so that a straight row of screens stays in one ring rather than losing its middle.
-    /// - Returns: the indices of the screens forming the outside of the arrangement.
-    static func outermostRing(of points: [CGPoint]) -> [Int] {
-        guard points.count > 2 else {
-            return Array(points.indices)
+    /// Listed clockwise, so that turning right is the next case along.
+    enum Direction: Int {
+        case right, down, left, up
+    }
+
+    /// One side of a grid cell that lies on the outline, pointing clockwise around the arrangement.
+    struct OutlineEdge: Equatable {
+        let from: Vertex
+        let to: Vertex
+        let direction: Direction
+
+        /// The screen this part of the outline belongs to, or `nil` where it bridges a gap.
+        let screen: Int?
+    }
+
+    /// Traces the outline of the given screens and returns the ones on it, in clockwise order,
+    /// starting from the screen at the top left.
+    /// - Parameters:
+    ///   - screens: indices into `frames` of the screens to consider.
+    ///   - frames: the frames of every screen, in a coordinate space whose y axis points up.
+    /// - Returns: indices into `frames`. Never empty unless `screens` is.
+    static func outermostRing(of screens: [Int], frames: [CGRect]) -> [Int] {
+        guard screens.count > 1 else {
+            return screens
         }
 
-        let sorted = points.indices.sorted { lhs, rhs in
-            points[lhs].x == points[rhs].x
-                ? points[lhs].y < points[rhs].y
-                : points[lhs].x < points[rhs].x
+        // Cut the arrangement along every screen edge, so that each cell of the grid is either
+        // entirely inside one screen or entirely outside all of them.
+        let xs = Set(screens.flatMap { [frames[$0].minX, frames[$0].maxX] }).sorted()
+        let ys = Set(screens.flatMap { [frames[$0].minY, frames[$0].maxY] }).sorted()
+        let columns = xs.count - 1
+        let rows = ys.count - 1
+
+        let owners: [[Int?]] = (0 ..< columns).map { column in
+            (0 ..< rows).map { row in
+                let middle = CGPoint(x: (xs[column] + xs[column + 1]) / 2, y: (ys[row] + ys[row + 1]) / 2)
+                return screens.first { frames[$0].contains(middle) }
+            }
         }
 
-        func chain(_ indices: [Int]) -> [Int] {
-            var hull: [Int] = []
+        // Fill in the gaps: any empty cell with the arrangement on both sides of it, left and
+        // right or above and below, is treated as part of it, so the outline bridges the gap.
+        var isSolid = owners.map { $0.map { $0 != nil } }
+        var didFill = true
 
-            for index in indices {
-                while hull.count >= 2,
-                      cross(points[hull[hull.count - 2]], points[hull[hull.count - 1]], points[index]) < -tolerance {
-                    hull.removeLast()
+        while didFill {
+            didFill = false
+
+            for column in 0 ..< columns {
+                for row in 0 ..< rows where !isSolid[column][row] {
+                    let isBetweenColumns = (0 ..< column).contains { isSolid[$0][row] }
+                        && (column + 1 ..< columns).contains { isSolid[$0][row] }
+                    let isBetweenRows = (0 ..< row).contains { isSolid[column][$0] }
+                        && (row + 1 ..< rows).contains { isSolid[column][$0] }
+
+                    if isBetweenColumns || isBetweenRows {
+                        isSolid[column][row] = true
+                        didFill = true
+                    }
                 }
+            }
+        }
 
-                hull.append(index)
+        func solid(_ column: Int, _ row: Int) -> Bool {
+            (0 ..< columns).contains(column) && (0 ..< rows).contains(row) && isSolid[column][row]
+        }
+
+        /// The screen the outline runs along, looking inwards through any bridged gap.
+        ///
+        /// A gap less than half as deep as the screen at the bottom of it is tall (or wide, for a
+        /// gap in the side of the arrangement) is only screens being slightly out of line, like a
+        /// row with one screen a point lower, so the outline belongs to that screen. Anything
+        /// deeper is a real gap, and the outline across it belongs to no screen.
+        func screen(behind direction: Direction, of column: Int, _ row: Int) -> Int? {
+            var column = column
+            var row = row
+            let outline = switch direction {
+            case .right: ys[row + 1]
+            case .down: xs[column + 1]
+            case .left: ys[row]
+            case .up: xs[column]
             }
 
-            return hull
+            while solid(column, row) {
+                if let owner = owners[column][row] {
+                    let depth = switch direction {
+                    case .right: outline - ys[row + 1]
+                    case .down: outline - xs[column + 1]
+                    case .left: ys[row] - outline
+                    case .up: xs[column] - outline
+                    }
+
+                    let size = switch direction {
+                    case .right, .left: frames[owner].height
+                    case .down, .up: frames[owner].width
+                    }
+
+                    return depth < size / 2 ? owner : nil
+                }
+
+                switch direction {
+                case .right: row -= 1
+                case .down: column -= 1
+                case .left: row += 1
+                case .up: column += 1
+                }
+            }
+
+            return nil
         }
 
-        return Set(chain(sorted)).union(chain(sorted.reversed())).sorted()
-    }
+        // Every side of a cell that faces empty space is part of the outline.
+        var outgoing: [Vertex: [OutlineEdge]] = [:]
+        var edgeCount = 0
 
-    static func isCollinear(_ points: [CGPoint]) -> Bool {
-        guard points.count > 2, let first = points.first else {
-            return true
+        for column in 0 ..< columns {
+            for row in 0 ..< rows where isSolid[column][row] {
+                let topLeft = Vertex(column: column, row: row + 1)
+                let topRight = Vertex(column: column + 1, row: row + 1)
+                let bottomRight = Vertex(column: column + 1, row: row)
+                let bottomLeft = Vertex(column: column, row: row)
+                var edges: [(from: Vertex, to: Vertex, direction: Direction)] = []
+
+                if !solid(column, row + 1) {
+                    edges.append((topLeft, topRight, .right))
+                }
+
+                if !solid(column + 1, row) {
+                    edges.append((topRight, bottomRight, .down))
+                }
+
+                if !solid(column, row - 1) {
+                    edges.append((bottomRight, bottomLeft, .left))
+                }
+
+                if !solid(column - 1, row) {
+                    edges.append((bottomLeft, topLeft, .up))
+                }
+
+                for edge in edges {
+                    outgoing[edge.from, default: []].append(
+                        OutlineEdge(
+                            from: edge.from,
+                            to: edge.to,
+                            direction: edge.direction,
+                            screen: screen(behind: edge.direction, of: column, row)
+                        )
+                    )
+                }
+
+                edgeCount += edges.count
+            }
         }
 
-        guard let second = points.first(where: { $0 != first }) else {
-            return true
+        // The top of the highest cell is always on the outside of the arrangement, never around a hole in it.
+        guard
+            let column = (0 ..< columns).first(where: { solid($0, rows - 1) }),
+            let start = outgoing[Vertex(column: column, row: rows)]?.first(where: { $0.direction == .right })
+        else {
+            return screens
         }
 
-        return points.allSatisfy { abs(cross(first, second, $0)) < tolerance }
-    }
+        var outline: [OutlineEdge] = []
+        var edge = start
 
-    /// The cross product of `origin → a` and `origin → b`, which is positive when the turn
-    /// from one to the other is counterclockwise.
-    static func cross(_ origin: CGPoint, _ a: CGPoint, _ b: CGPoint) -> CGFloat {
-        (a.x - origin.x) * (b.y - origin.y) - (a.y - origin.y) * (b.x - origin.x)
+        repeat {
+            outline.append(edge)
+
+            // Where two screens only meet at a corner, which macOS doesn't allow, turning right
+            // keeps the outline around one of them. The other is then walked as its own ring.
+            let options = outgoing[edge.to] ?? []
+            let next = [1, 0, 3].lazy
+                .compactMap { turn in
+                    options.first { $0.direction.rawValue == (edge.direction.rawValue + turn) % 4 }
+                }
+                .first
+
+            guard let next else {
+                break
+            }
+
+            edge = next
+        } while edge != start && outline.count <= edgeCount
+
+        // The cycle has no natural beginning, so start it where the eye does: at the top left
+        // corner of the screen nearest the top left of the arrangement. zShapedOrder can't pick
+        // it, as it contradicts itself for staggered screens, which would make the start (and
+        // with it the whole cycle, since screens can be on the outline twice) depend on which
+        // order the screens are looked at in.
+        let bounds = screens.reduce(CGRect.null) { $0.union(frames[$1]) }
+
+        func distanceFromTopLeft(_ screen: Int) -> (CGFloat, CGFloat, CGFloat) {
+            let frame = frames[screen]
+            return (hypot(frame.minX - bounds.minX, frame.maxY - bounds.maxY), frame.minX, -frame.maxY)
+        }
+
+        guard let first = outline.compactMap(\.screen).min(by: { distanceFromTopLeft($0) < distanceFromTopLeft($1) }) else {
+            return screens
+        }
+
+        let startIndex = outline.indices
+            .filter { outline[$0].screen == first && outline[$0].direction == .right }
+            .min { outline[$0].from.column < outline[$1].from.column }
+            ?? outline.firstIndex { $0.screen == first }
+            ?? 0
+
+        var ring: [Int] = []
+
+        for offset in outline.indices {
+            if let screen = outline[(startIndex + offset) % outline.count].screen, !ring.contains(screen) {
+                ring.append(screen)
+            }
+        }
+
+        return ring
     }
 }

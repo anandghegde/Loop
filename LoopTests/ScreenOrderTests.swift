@@ -41,10 +41,6 @@ struct ScreenOrderTests {
         #expect(order(.clockwise, row) == ["left", "middle", "right"])
     }
 
-    @Test func aRowIsWalkedRightToLeftCounterclockwise() {
-        #expect(order(.counterclockwise, row) == ["left", "right", "middle"])
-    }
-
     @Test func aRowKeepsEveryScreenInTheCycle() {
         // A row has no inside, so the middle screen has to stay in the ring rather than being
         // treated as a screen the cycle visits later.
@@ -62,6 +58,28 @@ struct ScreenOrderTests {
         #expect(order(.clockwise, screens) == ["laptop", "main", "side"])
     }
 
+    @Test func aRowAlignedAlongItsTopEdgesIsStillWalkedLeftToRight() {
+        // A taller screen in the middle, lined up with its neighbors along the top: its center
+        // sits below theirs, which must not turn the row into a triangle.
+        let screens = [
+            Screen("left", x: -1920, y: 360),
+            Screen("middle", x: 0, y: 0, width: 2560, height: 1440),
+            Screen("right", x: 2560, y: 360)
+        ]
+
+        #expect(order(.clockwise, screens) == ["left", "middle", "right"])
+    }
+
+    @Test func aRowOnePointOutOfLineIsStillWalkedLeftToRight() {
+        let screens = [
+            Screen("left", x: -1920, y: 1),
+            Screen("middle", x: 0, y: 0),
+            Screen("right", x: 1920, y: 1)
+        ]
+
+        #expect(order(.clockwise, screens) == ["left", "middle", "right"])
+    }
+
     // MARK: A column
 
     @Test func aColumnIsWalkedTopToBottomClockwise() {
@@ -73,7 +91,6 @@ struct ScreenOrderTests {
         ]
 
         #expect(order(.clockwise, screens) == ["top", "middle", "bottom"])
-        #expect(order(.counterclockwise, screens) == ["top", "bottom", "middle"])
     }
 
     // MARK: A square
@@ -90,10 +107,6 @@ struct ScreenOrderTests {
 
     @Test func aSquareIsWalkedClockwiseFromTheTopLeft() {
         #expect(order(.clockwise, square) == ["topLeft", "topRight", "bottomRight", "bottomLeft"])
-    }
-
-    @Test func aSquareIsWalkedCounterclockwiseFromTheTopLeft() {
-        #expect(order(.counterclockwise, square) == ["topLeft", "bottomLeft", "bottomRight", "topRight"])
     }
 
     @Test func theOrderDoesNotDependOnHowMacOSHandsOverTheScreens() {
@@ -127,6 +140,71 @@ struct ScreenOrderTests {
                 "11" // and then the middle
             ]
         )
+    }
+
+    @Test func aLargerCornerScreenDoesNotPullItsNeighborInside() {
+        // The same nine screens, with the bottom left one made larger so that it sticks out to
+        // the left and below. The bottom middle screen is still on the outside.
+        var screens: [Screen] = []
+
+        for row in 0 ..< 3 {
+            for column in 0 ..< 3 where (row, column) != (2, 0) {
+                screens.append(
+                    Screen("\(row)\(column)", x: CGFloat(column) * 1920, y: CGFloat(2 - row) * 1080)
+                )
+            }
+        }
+
+        screens.append(Screen("20", x: -560, y: -760, width: 2480, height: 1840))
+
+        #expect(
+            order(.clockwise, screens) == [
+                "00", "01", "02", "12", "22", "21", "20", "10", // around the outside
+                "11" // and then the middle
+            ]
+        )
+    }
+
+    @Test func aGapIsSteppedOverRatherThanWalkedInto() {
+        // The same nine screens, with the top two on the right moved away to leave a gap, and
+        // the bottom right one holding them on. The outline crosses the top of the gap rather
+        // than going down into it, so the middle is still visited last.
+        var screens: [Screen] = []
+
+        for row in 0 ..< 3 {
+            for column in 0 ..< 2 {
+                screens.append(
+                    Screen("\(row)\(column)", x: CGFloat(column) * 1920, y: CGFloat(2 - row) * 1080)
+                )
+            }
+        }
+
+        screens += [
+            Screen("02", x: 4600, y: 2160),
+            Screen("12", x: 4600, y: 1080),
+            Screen("22", x: 3840, y: 0)
+        ]
+
+        #expect(
+            order(.clockwise, screens) == [
+                "00", "01", "02", "12", "22", "21", "20", "10", // around the outside
+                "11" // and then the middle
+            ]
+        )
+    }
+
+    @Test func aStaircaseIsWalkedFromItsBottomLeft() {
+        // Each screen sits half a screen higher than the one before it. zShapedOrder can't put
+        // these in a consistent order, so it mustn't be what decides where the cycle starts.
+        let screens = [
+            Screen("a", x: 0, y: 0),
+            Screen("b", x: 1920, y: 540),
+            Screen("c", x: 3840, y: 1080),
+            Screen("d", x: 5760, y: 1620)
+        ]
+
+        #expect(order(.clockwise, screens) == ["a", "b", "c", "d"])
+        #expect(order(.clockwise, screens.reversed()) == ["a", "b", "c", "d"])
     }
 
     // MARK: Degenerate arrangements
